@@ -68,19 +68,72 @@ When you add a website URL, Feediverse:
 3. If the URL itself is a feed, detects and adds it directly
 4. If multiple feeds are found, presents options for you to choose from
 
-## Deployment (systemd)
+## Installation
+
+### From source (any Linux box)
 
 ```bash
-# Copy service file
+git clone https://github.com/tpaixao/feediverse.git
+cd feediverse
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python app.py
+```
+
+Server runs on port 8090. Open `http://localhost:8090` in your browser.
+
+### Deploy as a systemd service (recommended)
+
+The service file assumes the repo lives at the path shown in `WorkingDirectory` and `ExecStart`. If you cloned elsewhere, edit those lines in `feediverse.service` first.
+
+```bash
+# 1. Ensure your user services survive logout/reboot (one-time)
+loginctl enable-linger $USER
+
+# 2. Create the user systemd directory if it doesn't exist
+mkdir -p ~/.config/systemd/user
+
+# 3. Copy the service file
 cp feediverse.service ~/.config/systemd/user/
 
-# Enable and start
+# 4. Reload systemd, enable and start
 systemctl --user daemon-reload
 systemctl --user enable feediverse
 systemctl --user start feediverse
+
+# 5. Verify it's running
+systemctl --user status feediverse
 ```
 
-Requires user lingering enabled (`loginctl enable-linger $USER`) for the service to survive logout/reboot.
+Logs: `journalctl --user -u feediverse -f`
+
+### Configuration
+
+| Env var | Default | Description |
+|---------|---------|-------------|
+| `FEEDIVERSE_INTERVAL` | `30` | Feed polling interval in minutes |
+
+Set in the `Environment=` line of the service file.
+
+### Access from other devices
+
+Once running, the server listens on `0.0.0.0:8090`. From any device on the same network:
+
+```
+http://<your-server-ip>:8090
+```
+
+### Install as a PWA (Android)
+
+1. Open the URL above in Chrome on your Android device
+2. Tap the menu (⋮) → **Add to Home screen**
+3. Feediverse launches full-screen with its own icon, no browser chrome
+
+### Install as a PWA (Desktop Chrome/Edge)
+
+1. Open the URL in Chrome or Edge
+2. Click the install icon (⊕) in the address bar, or menu → **Install Feediverse**
 
 ## Roadmap
 
