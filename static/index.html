@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f1117">
+    <title>Feediverse</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+    <link rel="stylesheet" href="/static/style.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/sw.js').catch(console.error);
+        }
+    </script>
+</head>
+<body>
+<div x-data="feediverse()" x-init="init()">
+
+<!-- Top bar -->
+<header class="topbar">
+    <div class="topbar-left">
+        <img x-show="currentView === 'timeline'" src="/static/icon-192.png" class="logo" alt="Feediverse">
+        <button x-show="currentView !== 'timeline'" @click="goHome()" class="back-btn">‹ Back</button>
+    </div>
+    <h1 class="topbar-title" x-text="viewTitle"></h1>
+    <div class="topbar-right">
+        <button @click="refresh()" class="icon-btn" :class="{ 'spinning': refreshing }">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M23 4v6h-6M1 20v-6h6"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+        </button>
+    </div>
+</header>
+
+<!-- Timeline view -->
+<main x-show="currentView === 'timeline'" class="feed">
+    <template x-if="loading && posts.length === 0">
+        <div class="loading">Loading feed…</div>
+    </template>
+    <template x-if="!loading && posts.length === 0">
+        <div class="empty-state">
+            <p>Welcome to Feediverse</p>
+            <p class="muted">Follow some websites to see their latest posts here.</p>
+            <button @click="currentView='explore'" class="btn-primary">Add your first feed</button>
+        </div>
+    </template>
+    <template x-for="post in posts" :key="post.id">
+        <article class="post-card" @click="openPost(post)">
+            <div class="post-header">
+                <img :src="post.feed_icon || '/static/icon-192.png'" class="feed-avatar" @error="$el.src='/static/icon-192.png'" alt="">
+                <div class="post-meta">
+                    <span class="feed-name" x-text="post.feed_title"></span>
+                    <span class="post-date" x-text="formatDate(post.published_at)"></span>
+                </div>
+            </div>
+            <h2 class="post-title" x-text="post.title"></h2>
+            <p class="post-summary" x-text="stripHtml(post.summary).slice(0, 280)"></p>
+            <template x-if="post.attachments && post.attachments.filter(a => a.type === 'image').length > 0">
+                <div class="post-images">
+                    <template x-for="img in post.attachments.filter(a => a.type === 'image').slice(0, 3)" :key="img.url">
+                        <img :src="img.url" class="post-img" loading="lazy" @error="$el.style.display='none'" alt="">
+                    </template>
+                </div>
+            </template>
+            <div class="post-footer">
+                <span class="post-link" @click.stop="openUrl(post.url)">Read →</span>
+            </div>
+        </article>
+    </template>
+    <template x-if="posts.length > 0 && !loading">
+        <button @click="loadMore()" class="load-more">Load more</button>
+    </template>
+</main>
+
+<!-- Explore view -->
+<main x-show="currentView === 'explore'" class="feed">
+    <div class="search-section">
+        <h2>Discover & Add Feeds</h2>
+        <p class="muted">Paste any website URL to find its RSS feed.</p>
+        <div class="search-bar">
+            <input type="url" x-model="discoverUrl" placeholder="example.com or https://blog.example.com"
+                   @keyup.enter="doDiscover()" class="search-input">
+            <button @click="doDiscover()" :disabled="!discoverUrl.trim()" class="btn-primary">Find</button>
+        </div>
+    </div>
+
+    <template x-if="discovering">
+        <div class="loading">Discovering feeds…</div>
+    </template>
+
+    <template x-if="discoverError">
+        <div class="error-msg" x-text="discoverError"></div>
+    </template>
+
+    <!-- Direct add result -->
+    <template x-if="addedFeed">
+        <div class="success-msg">
+            ✓ Added <strong x-text="addedFeed.title"></strong>
+            <span x-text="`(${addedFeed.posts_added || 0} posts loaded)`"></span>
+        </div>
+    </template>
+
+    <!-- Discovered feeds list -->
+    <template x-if="discoveredFeeds.length > 0">
+        <div class="discovered-list">
+            <h3>Found feeds:</h3>
+            <template x-for="feed in discoveredFeeds" :key="feed.url">
+                <div class="discovered-item">
+                    <div class="discovered-info">
+                        <strong x-text="feed.title"></strong>
+                        <span class="muted" x-text="feed.url"></span>
+                    </div>
+                    <button @click="addFeedDirect(feed.url)" class="btn-follow">+ Follow</button>
+                </div>
+            </template>
+        </div>
+    </template>
+
+    <!-- Following list -->
+    <div class="following-section" x-show="feeds.length > 0">
+        <h3>Following (<span x-text="feeds.length"></span>)</h3>
+        <template x-for="feed in feeds" :key="feed.id">
+            <div class="feed-item">
+                <img :src="feed.icon_url || '/static/icon-192.png'" class="feed-avatar-sm" @error="$el.src='/static/icon-192.png'" alt="">
+                <div class="feed-item-info" @click="openFeed(feed.id)">
+                    <strong x-text="feed.title"></strong>
+                    <span class="muted" x-text="feed.url"></span>
+                </div>
+                <button @click.stop="unfollow(feed.id, feed.title)" class="btn-unfollow">Unfollow</button>
+            </div>
+        </template>
+    </div>
+</main>
+
+<!-- Feed detail view -->
+<main x-show="currentView === 'feed'" class="feed">
+    <template x-if="activeFeed">
+        <div>
+            <div class="feed-profile">
+                <img :src="activeFeed.feed.icon_url || '/static/icon-192.png'" class="feed-avatar-lg" @error="$el.src='/static/icon-192.png'" alt="">
+                <h2 x-text="activeFeed.feed.title"></h2>
+                <p class="muted" x-text="activeFeed.feed.description"></p>
+                <a x-show="activeFeed.feed.site_url" :href="activeFeed.feed.site_url" target="_blank" class="site-link">Visit website →</a>
+            </div>
+            <template x-for="post in activeFeed.posts" :key="post.id">
+                <article class="post-card" @click="openPost(post)">
+                    <h2 class="post-title" x-text="post.title"></h2>
+                    <span class="post-date" x-text="formatDate(post.published_at)"></span>
+                    <p class="post-summary" x-text="stripHtml(post.summary).slice(0, 280)"></p>
+                    <div class="post-footer">
+                        <span class="post-link" @click.stop="openUrl(post.url)">Read →</span>
+                    </div>
+                </article>
+            </template>
+        </div>
+    </template>
+</main>
+
+<!-- Post detail modal -->
+<div x-show="activePost" x-cloak @click.self="activePost = null" class="modal-overlay">
+    <div class="modal-content" x-show="activePost">
+        <template x-if="activePost">
+            <div>
+                <button @click="activePost = null" class="modal-close">✕</button>
+                <div class="post-header">
+                    <img :src="activePost.feed_icon || '/static/icon-192.png'" class="feed-avatar" @error="$el.src='/static/icon-192.png'" alt="">
+                    <div class="post-meta">
+                        <span class="feed-name" x-text="activePost.feed_title"></span>
+                        <span class="post-date" x-text="formatDate(activePost.published_at)"></span>
+                    </div>
+                </div>
+                <h2 class="post-title-full" x-text="activePost.title"></h2>
+                <template x-if="activePost.content">
+                    <div class="post-content" x-html="activePost.content"></div>
+                </template>
+                <template x-if="!activePost.content && activePost.summary">
+                    <div class="post-content" x-html="activePost.summary"></div>
+                </template>
+                <template x-if="activePost.url">
+                    <a :href="activePost.url" target="_blank" class="btn-primary read-original">Read original →</a>
+                </template>
+            </div>
+        </template>
+    </div>
+</div>
+
+<!-- Bottom nav -->
+<nav class="bottomnav">
+    <button @click="goHome()" :class="{ active: currentView === 'timeline' }" class="nav-btn">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        <span>Home</span>
+    </button>
+    <button @click="currentView='explore'; loadFeeds()" :class="{ active: currentView === 'explore' }" class="nav-btn">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <span>Explore</span>
+    </button>
+</nav>
+
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

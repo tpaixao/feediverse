@@ -1,0 +1,15 @@
+[Unit]
+Description=Feediverse RSS Reader PWA
+After=network.target
+
+[Service]
+Type=simple
+User=tiago
+WorkingDirectory=/mnt/ssd1tb/nanobot/workspace/projects/feediverse
+ExecStart=/mnt/ssd1tb/nanobot/workspace/projects/feediverse/venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8090
+Restart=on-failure
+RestartSec=5
+Environment=FEEDIVERSE_INTERVAL=30
+
+[Install]
+WantedBy=default.target
