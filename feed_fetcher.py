@@ -112,7 +112,7 @@ def extract_content(entry):
 
     # Prefer full content
     if entry.get("content"):
-        content = entry.content[0].get("value", "")
+        content = entry.get("content", [{}])[0].get("value", "")
     elif entry.get("summary"):
         content = entry.get("summary", "")
 
@@ -177,6 +177,8 @@ def extract_attachments(entry, base_url):
                 attachments.append({"type": "audio", "url": href, "title": link.get("title", "")})
             elif ltype.startswith("video"):
                 attachments.append({"type": "video", "url": href, "title": link.get("title", "")})
+            else:
+                attachments.append({"type": "link", "url": href, "title": link.get("title", "")})
 
     return attachments
 
@@ -276,8 +278,9 @@ def fetch_og_metadata(url, timeout=10):
             if prop.startswith("og:"):
                 key = prop[3:]  # strip 'og:' prefix
                 og[key] = content
-            elif prop.startswith("twitter:"):
-                key = prop[8:]  # strip 'twitter:' prefix
+            elif prop.startswith("twitter:") or name.startswith("twitter:"):
+                # twitter: cards may use property= or name=
+                key = (prop if prop.startswith("twitter:") else name)[8:]  # strip 'twitter:'
                 if key not in og:  # don't override OG with Twitter
                     og[key] = content
             elif name == "description" and "description" not in og:
@@ -300,6 +303,8 @@ def fetch_og_metadata(url, timeout=10):
                 og["image"] = urljoin(url, icon_link.get("href"))
 
         og["url"] = url
+        if "title" not in og:
+            og["title"] = url
         return og
     except Exception as e:
         log.warning(f"OG metadata fetch failed for {url}: {e}")
