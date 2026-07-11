@@ -207,3 +207,64 @@ def get_stats():
         posts_count = conn.execute("SELECT COUNT(*) as c FROM posts").fetchone()["c"]
         last_fetch = conn.execute("SELECT MAX(last_fetched) as l FROM feeds").fetchone()["l"]
         return {"feeds": feeds_count, "posts": posts_count, "last_fetch": last_fetch}
+
+
+def add_opml_feeds(feeds_data):
+    """
+    Batch-add feeds from parsed OPML data.
+    feeds_data: list of {"url": ..., "title": ...}
+    Returns {"added": int, "failed": int, "errors": [...]}.
+    """
+    # Avoid circular import
+    from feed_fetcher import fetch_feed
+
+    added = 0
+    failed = 0
+    errors = []
+
+    for feed_info in feeds_data:
+        url = feed_info.get("url", "").strip()
+        if not url:
+            continue
+        existing = get_feed_by_url(url)
+        if existing:
+            continue
+        try:
+            result = fetch_feed(url)
+            if result.get("error"):
+                failed += 1
+                errors.append({"url": url, "error": result["error"]})
+                continue
+            feed_id = add_feed(url, result["title"], result["description"],
+                               result["site_url"], result["icon_url"])
+            for entry in result["entries"]:
+                post_id = add_post(feed_id, entry["guid"], entry["title"],
+                                   entry["summary"], entry["content"],
+                                   entry["url"], entry["author"], entry["published_at"])
+                if post_id:
+                    for att in entry["attachments"]:
+                        add_attachment(post_id, att["type"], att["url"], att["title"])
+            update_feed_fetched(feed_id, result.get("etag", ""), result.get("last_modified", ""))
+            added += 1
+        except Exception as e:
+            failed += 1
+            errors.append({"url": url, "error": str(e)})
+
+    return {"added": added, "failed": failed, "errors": errors}
+
+
+def get_feed_post_count(feed_id):
+    """Get post count for a single feed."""
+    return get_post_count(feed_id=feed_id)
+
+
+def get_feed_media(feed_id, limit=50):
+    """Get all media attachments for a feed's posts."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT a.*, p.title as post_title, p.id as post_id, p.published_at "
+            "FROM attachments a JOIN posts p ON a.post_id = p.id "
+            "WHERE p.feed_id = ? ORDER BY p.published_at DESC NULLS LAST LIMIT ?",
+            (feed_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]

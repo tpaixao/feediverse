@@ -1,11 +1,12 @@
 """FastAPI application for Feediverse — read-only RSS reader PWA."""
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -86,6 +87,66 @@ def on_shutdown():
 
 class AddFeedRequest(BaseModel):
     url: str
+
+
+# --- OPML Import/Export ---
+
+@app.get("/api/opml/export")
+def api_opml_export():
+    """Export all followed feeds as OPML XML."""
+    feeds = db.get_all_feeds()
+    xml_lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<opml version="2.0">',
+        '  <head>',
+        '    <title>Feediverse Subscriptions</title>',
+        f'    <dateCreated>{datetime.now().isoformat()}</dateCreated>',
+        '  </head>',
+        '  <body>',
+        '    <outline text="Feeds" title="Feeds">',
+    ]
+    for feed in feeds:
+        title = (feed["title"] or feed["url"]).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', '&quot;')
+        url = feed["url"].replace("&", "&amp;").replace('"', '&quot;')
+        site = (feed["site_url"] or "").replace("&", "&amp;").replace('"', '&quot;')
+        xml_lines.append(
+            f'      <outline type="rss" text="{title}" title="{title}" '
+            f'xmlUrl="{url}" htmlUrl="{site}"/>'
+        )
+    xml_lines.extend(['    </outline>', '  </body>', '</opml>'])
+    opml = '\n'.join(xml_lines)
+    return Response(
+        content=opml,
+        media_type="application/xml",
+        headers={"Content-Disposition": "attachment; filename=feediverse.opml"}
+    )
+
+
+@app.post("/api/opml/import")
+async def api_opml_import(req: Request):
+    """Import feeds from an uploaded OPML file."""
+    from xml.etree import ElementTree as ET
+
+    body_bytes = await req.body()
+    try:
+        root = ET.fromstring(body_bytes)
+    except ET.ParseError as e:
+        raise HTTPException(400, f"Invalid OPML: {e}")
+
+    feeds_data = []
+    for outline in root.iter("outline"):
+        xml_url = outline.get("xmlUrl")
+        if xml_url:
+            feeds_data.append({
+                "url": xml_url,
+                "title": outline.get("title") or outline.get("text") or xml_url,
+            })
+
+    if not feeds_data:
+        raise HTTPException(400, "No feeds found in OPML file")
+
+    result = db.add_opml_feeds(feeds_data)
+    return result
 
 
 # --- API Routes ---
@@ -239,6 +300,26 @@ def api_search(q: str = Query(...), limit: int = 50, offset: int = 0):
         raise HTTPException(400, "Query too short")
     posts = db.search_posts(q, limit=limit, offset=offset)
     return {"posts": posts, "query": q, "limit": limit, "offset": offset}
+
+
+@app.get("/api/feeds/{feed_id}/media")
+def api_feed_media(feed_id: int, limit: int = 50):
+    """Get media attachments for a feed (for the media tab)."""
+    feed = db.get_feed_by_id(feed_id)
+    if not feed:
+        raise HTTPException(404, "Feed not found")
+    media = db.get_feed_media(feed_id, limit=limit)
+    return {"feed_id": feed_id, "media": media}
+
+
+@app.get("/api/preview")
+def api_preview(url: str = Query(...)):
+    """Fetch OpenGraph metadata for a URL to generate link previews."""
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "https://" + url
+    from feed_fetcher import fetch_og_metadata
+    og = fetch_og_metadata(url)
+    return og
 
 
 @app.post("/api/refresh")

@@ -41,8 +41,12 @@ Server runs on port 8090. Open `http://localhost:8090` in your browser.
 | POST | `/api/feeds` | Add feed by URL (auto-discovers RSS) |
 | POST | `/api/feeds/add-direct` | Add a specific feed URL directly |
 | DELETE | `/api/feeds/{id}` | Unfollow a feed |
+| GET | `/api/feeds/{id}/media` | Get media attachments for a feed |
 | GET | `/api/discover?url=` | Discover feeds at a URL without adding |
 | GET | `/api/search?q=` | Search across all posts |
+| GET | `/api/preview?url=` | Fetch OpenGraph metadata for link previews |
+| GET | `/api/opml/export` | Export all feeds as OPML XML |
+| POST | `/api/opml/import` | Import feeds from OPML (upload XML body) |
 | GET | `/api/stats` | Feed/post counts and last fetch time |
 | POST | `/api/refresh` | Manually trigger a feed refresh |
 
@@ -137,8 +141,25 @@ http://<your-server-ip>:8090
 
 ## Roadmap
 
-- **Phase 2**: Site profile pages, rich link previews, search UI, OPML import/export
-- **Phase 3**: RSS Bridge integration for feedless sites, trending links, push notifications, bookmarks
+### Phase 1 (MVP) ✅
+- [x] Backend: feed fetcher, parser, SQLite storage, basic API
+- [x] Frontend: timeline view, add feed by URL with discovery, follow/unfollow
+- [x] PWA manifest + service worker + offline caching
+- [x] Deploy on Pi
+
+### Phase 2 ✅
+- [x] Site profile pages with media tabs
+- [x] Rich content rendering (images, audio/video players, link sanitization)
+- [x] Search across posts (full UI + debounce)
+- [x] OPML import/export
+- [x] OpenGraph link preview API (`/api/preview`)
+
+### Phase 3 (Future)
+- [ ] RSS Bridge integration for feedless sites
+- [ ] Hot HyperLinks — trending links from followed feeds
+- [ ] Notifications for new posts (Web Push API)
+- [ ] Bookmark/save posts
+- [ ] OpenGraph card rendering in timeline (rich link previews)
 
 ## License
 

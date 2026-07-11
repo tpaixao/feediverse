@@ -2,9 +2,12 @@ const API = '/api';
 
 function feediverse() {
     return {
-        // State
+        // Navigation state
         currentView: 'timeline',
         viewTitle: 'Feediverse',
+        viewHistory: [],
+
+        // Timeline state
         posts: [],
         feeds: [],
         loading: false,
@@ -13,16 +16,29 @@ function feediverse() {
         limit: 50,
         hasMore: true,
 
-        // Discover
+        // Discover state
         discoverUrl: '',
         discovering: false,
         discoveredFeeds: [],
         discoverError: '',
         addedFeed: null,
 
-        // Detail views
+        // Search state
+        searchQuery: '',
+        searchResults: [],
+        searching: false,
+
+        // Feed detail state
         activeFeed: null,
+        feedTab: 'posts',
+        feedMedia: [],
+        feedMediaLoading: false,
+
+        // Post detail
         activePost: null,
+
+        // OPML
+        opmlResult: null,
 
         // --- Init ---
         async init() {
@@ -30,12 +46,36 @@ function feediverse() {
         },
 
         // --- Navigation ---
+        pushView(view) {
+            this.viewHistory.push(this.currentView);
+            this.currentView = view;
+        },
+
+        goBack() {
+            if (this.viewHistory.length > 0) {
+                this.currentView = this.viewHistory.pop();
+            } else {
+                this.goHome();
+            }
+        },
+
         goHome() {
             this.currentView = 'timeline';
             this.viewTitle = 'Feediverse';
+            this.viewHistory = [];
             this.posts = [];
             this.offset = 0;
             this.loadTimeline();
+        },
+
+        goSearch() {
+            this.pushView('search');
+            this.viewTitle = 'Search';
+            this.searchQuery = '';
+            this.searchResults = [];
+            this.$nextTick(() => {
+                if (this.$refs.searchInput) this.$refs.searchInput.focus();
+            });
         },
 
         // --- Timeline ---
@@ -75,6 +115,25 @@ function feediverse() {
             }
         },
 
+        // --- Search ---
+        async doSearch() {
+            const q = this.searchQuery.trim();
+            if (q.length < 2) {
+                this.searchResults = [];
+                return;
+            }
+            this.searching = true;
+            try {
+                const res = await fetch(`${API}/search?q=${encodeURIComponent(q)}&limit=50`);
+                const data = await res.json();
+                this.searchResults = data.posts;
+            } catch (e) {
+                console.error('Search failed:', e);
+            } finally {
+                this.searching = false;
+            }
+        },
+
         // --- Explore / Feeds ---
         async loadFeeds() {
             try {
@@ -92,7 +151,6 @@ function feediverse() {
             this.discoveredFeeds = [];
             this.addedFeed = null;
             try {
-                // Try adding directly first (handles single-feed auto-add)
                 const res = await fetch(`${API}/feeds`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -102,14 +160,12 @@ function feediverse() {
                 if (!res.ok) throw new Error(data.detail || 'Failed to discover feeds');
 
                 if (data.feed) {
-                    // Single feed auto-added
                     this.addedFeed = data;
                     this.discoverUrl = '';
                     this.loadFeeds();
                     this.offset = 0;
                     this.loadTimeline();
                 } else if (data.discovered) {
-                    // Multiple feeds found — show options
                     this.discoveredFeeds = data.discovered;
                 }
             } catch (e) {
@@ -155,9 +211,18 @@ function feediverse() {
             }
         },
 
+        unfollowFromFeed() {
+            if (!this.activeFeed) return;
+            const feed = this.activeFeed.feed;
+            this.unfollow(feed.id, feed.title);
+            this.goBack();
+        },
+
         async openFeed(feedId) {
-            this.currentView = 'feed';
+            this.pushView('feed');
             this.viewTitle = '';
+            this.feedTab = 'posts';
+            this.feedMedia = [];
             try {
                 const res = await fetch(`${API}/feeds/${feedId}`);
                 this.activeFeed = await res.json();
@@ -167,9 +232,84 @@ function feediverse() {
             }
         },
 
+        async loadFeedMedia() {
+            if (!this.activeFeed) return;
+            if (this.feedMedia.length > 0) return;
+            this.feedMediaLoading = true;
+            try {
+                const res = await fetch(`${API}/feeds/${this.activeFeed.feed.id}/media?limit=60`);
+                const data = await res.json();
+                this.feedMedia = data.media;
+            } catch (e) {
+                console.error('Failed to load media:', e);
+            } finally {
+                this.feedMediaLoading = false;
+            }
+        },
+
+        // --- OPML ---
+        async importOpml(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            this.opmlResult = null;
+            try {
+                const text = await file.text();
+                const res = await fetch(`${API}/opml/import`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/xml' },
+                    body: text,
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Import failed');
+                this.opmlResult = data;
+                this.loadFeeds();
+                this.offset = 0;
+                this.loadTimeline();
+            } catch (e) {
+                this.opmlResult = { added: 0, failed: 1, errors: [{ error: e.message }] };
+            }
+            event.target.value = '';
+        },
+
+        exportOpml() {
+            window.open(`${API}/opml/export`, '_blank');
+        },
+
         // --- Post ---
         openPost(post) {
             this.activePost = post;
+        },
+
+        async openPostById(postId) {
+            // Find in current posts or fetch
+            let post = this.posts.find(p => p.id === postId);
+            if (!post && this.activeFeed) {
+                post = this.activeFeed.posts.find(p => p.id === postId);
+            }
+            if (!post && this.searchResults.length > 0) {
+                post = this.searchResults.find(p => p.id === postId);
+            }
+            if (post) {
+                this.openPost(post);
+            }
+        },
+
+        // --- Content rendering ---
+        renderContent(html) {
+            if (!html) return '';
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            // Make all links open in new tab
+            tmp.querySelectorAll('a').forEach(a => {
+                a.setAttribute('target', '_blank');
+                a.setAttribute('rel', 'noopener noreferrer');
+            });
+            // Add loading="lazy" to all images
+            tmp.querySelectorAll('img').forEach(img => {
+                img.setAttribute('loading', 'lazy');
+                img.onerror = () => { img.style.display = 'none'; };
+            });
+            return tmp.innerHTML;
         },
 
         // --- Helpers ---

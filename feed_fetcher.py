@@ -255,3 +255,74 @@ def extract_feed_icon(feed, site_url):
             return f"https://www.google.com/s2/favicons?domain={parsed.netloc}&sz=64"
 
     return ""
+
+
+def fetch_og_metadata(url, timeout=10):
+    """
+    Fetch OpenGraph metadata for a URL.
+    Returns dict with title, description, image, site_name, url.
+    """
+    try:
+        resp = fetch_url(url, timeout=timeout)
+        soup = BeautifulSoup(resp.text, "lxml")
+
+        og = {}
+        for meta in soup.find_all("meta"):
+            prop = meta.get("property", "")
+            name = meta.get("name", "")
+            content = meta.get("content", "")
+            if not content:
+                continue
+            if prop.startswith("og:"):
+                key = prop[3:]  # strip 'og:' prefix
+                og[key] = content
+            elif prop.startswith("twitter:"):
+                key = prop[8:]  # strip 'twitter:' prefix
+                if key not in og:  # don't override OG with Twitter
+                    og[key] = content
+            elif name == "description" and "description" not in og:
+                og["description"] = content
+            elif name == "author" and "author" not in og:
+                og["author"] = content
+
+        # Fallbacks: use <title> if no og:title
+        if "title" not in og:
+            title_tag = soup.find("title")
+            if title_tag:
+                og["title"] = title_tag.get_text(strip=True)
+
+        # Favicon fallback for image
+        if "image" not in og:
+            icon_link = soup.find("link", attrs={"rel": "icon"}) or \
+                        soup.find("link", attrs={"rel": "shortcut icon"}) or \
+                        soup.find("link", attrs={"rel": "apple-touch-icon"})
+            if icon_link and icon_link.get("href"):
+                og["image"] = urljoin(url, icon_link.get("href"))
+
+        og["url"] = url
+        return og
+    except Exception as e:
+        log.warning(f"OG metadata fetch failed for {url}: {e}")
+        return {"url": url, "title": url, "error": str(e)}
+
+
+def _extract_feed_icon_impl(feed, site_url):
+    """Try to extract a feed/site icon URL."""
+    # feedparser may have image
+    if feed.get("image"):
+        img = feed["image"]
+        if isinstance(img, dict):
+            return img.get("href", img.get("url", ""))
+        return str(img)
+
+    # Try favicon
+    if site_url:
+        parsed = urlparse(site_url)
+        if parsed.netloc:
+            return f"https://www.google.com/s2/favicons?domain={parsed.netloc}&sz=64"
+
+    return ""
+
+
+# Alias for backwards compat
+extract_feed_icon = _extract_feed_icon_impl

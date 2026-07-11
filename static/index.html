@@ -22,7 +22,7 @@
 <header class="topbar">
     <div class="topbar-left">
         <img x-show="currentView === 'timeline'" src="/static/icon-192.png" class="logo" alt="Feediverse">
-        <button x-show="currentView !== 'timeline'" @click="goHome()" class="back-btn">‹ Back</button>
+        <button x-show="currentView !== 'timeline'" @click="goBack()" class="back-btn">‹ Back</button>
     </div>
     <h1 class="topbar-title" x-text="viewTitle"></h1>
     <div class="topbar-right">
@@ -49,7 +49,7 @@
     </template>
     <template x-for="post in posts" :key="post.id">
         <article class="post-card" @click="openPost(post)">
-            <div class="post-header">
+            <div class="post-header" @click.stop="openFeed(post.feed_id)" style="cursor:pointer">
                 <img :src="post.feed_icon || '/static/icon-192.png'" class="feed-avatar" @error="$el.src='/static/icon-192.png'" alt="">
                 <div class="post-meta">
                     <span class="feed-name" x-text="post.feed_title"></span>
@@ -87,6 +87,24 @@
         </div>
     </div>
 
+    <!-- OPML import/export -->
+    <div class="opml-section">
+        <h3>OPML Import / Export</h3>
+        <div class="opml-actions">
+            <label class="btn-secondary">
+                Import OPML
+                <input type="file" accept=".opml,.xml" @change="importOpml($event)" style="display:none">
+            </label>
+            <button @click="exportOpml()" class="btn-secondary">Export OPML</button>
+        </div>
+        <template x-if="opmlResult">
+            <div class="opml-result" :class="{ 'error': opmlResult.failed > 0 && opmlResult.added === 0 }">
+                <span x-text="`Imported ${opmlResult.added} feeds`"></span>
+                <span x-show="opmlResult.failed > 0" class="muted" x-text="`(${opmlResult.failed} failed)`"></span>
+            </div>
+        </template>
+    </div>
+
     <template x-if="discovering">
         <div class="loading">Discovering feeds…</div>
     </template>
@@ -98,7 +116,7 @@
     <!-- Direct add result -->
     <template x-if="addedFeed">
         <div class="success-msg">
-            ✓ Added <strong x-text="addedFeed.title"></strong>
+            ✓ Added <strong x-text="addedFeed.feed ? addedFeed.feed.title : addedFeed.title"></strong>
             <span x-text="`(${addedFeed.posts_added || 0} posts loaded)`"></span>
         </div>
     </template>
@@ -135,7 +153,44 @@
     </div>
 </main>
 
-<!-- Feed detail view -->
+<!-- Search view -->
+<main x-show="currentView === 'search'" class="feed">
+    <div class="search-section">
+        <div class="search-bar">
+            <input type="text" x-model="searchQuery" placeholder="Search posts…"
+                   @keyup.enter="doSearch()" @input.debounce.400ms="doSearch()" class="search-input" x-ref="searchInput">
+            <button @click="doSearch()" :disabled="!searchQuery.trim()" class="btn-primary">Search</button>
+        </div>
+    </div>
+    <template x-if="searching">
+        <div class="loading">Searching…</div>
+    </template>
+    <template x-if="!searching && searchResults.length === 0 && searchQuery">
+        <div class="empty-state">
+            <p class="muted">No results for "<span x-text="searchQuery"></span>"</p>
+        </div>
+    </template>
+    <template x-if="!searching && searchResults.length === 0 && !searchQuery">
+        <div class="empty-state">
+            <p class="muted">Search across all your posts by title, summary, or content.</p>
+        </div>
+    </template>
+    <template x-for="post in searchResults" :key="post.id">
+        <article class="post-card" @click="openPost(post)">
+            <div class="post-header" @click.stop="openFeed(post.feed_id)" style="cursor:pointer">
+                <img :src="post.feed_icon || '/static/icon-192.png'" class="feed-avatar" @error="$el.src='/static/icon-192.png'" alt="">
+                <div class="post-meta">
+                    <span class="feed-name" x-text="post.feed_title"></span>
+                    <span class="post-date" x-text="formatDate(post.published_at)"></span>
+                </div>
+            </div>
+            <h2 class="post-title" x-text="post.title"></h2>
+            <p class="post-summary" x-text="stripHtml(post.summary).slice(0, 280)"></p>
+        </article>
+    </template>
+</main>
+
+<!-- Feed detail view with tabs -->
 <main x-show="currentView === 'feed'" class="feed">
     <template x-if="activeFeed">
         <div>
@@ -143,18 +198,70 @@
                 <img :src="activeFeed.feed.icon_url || '/static/icon-192.png'" class="feed-avatar-lg" @error="$el.src='/static/icon-192.png'" alt="">
                 <h2 x-text="activeFeed.feed.title"></h2>
                 <p class="muted" x-text="activeFeed.feed.description"></p>
-                <a x-show="activeFeed.feed.site_url" :href="activeFeed.feed.site_url" target="_blank" class="site-link">Visit website →</a>
+                <div class="feed-profile-actions">
+                    <a x-show="activeFeed.feed.site_url" :href="activeFeed.feed.site_url" target="_blank" class="site-link">Visit website →</a>
+                    <button @click="unfollowFromFeed()" class="btn-unfollow">Unfollow</button>
+                </div>
             </div>
-            <template x-for="post in activeFeed.posts" :key="post.id">
-                <article class="post-card" @click="openPost(post)">
-                    <h2 class="post-title" x-text="post.title"></h2>
-                    <span class="post-date" x-text="formatDate(post.published_at)"></span>
-                    <p class="post-summary" x-text="stripHtml(post.summary).slice(0, 280)"></p>
-                    <div class="post-footer">
-                        <span class="post-link" @click.stop="openUrl(post.url)">Read →</span>
-                    </div>
-                </article>
-            </template>
+
+            <!-- Tabs -->
+            <div class="feed-tabs">
+                <button @click="feedTab='posts'" :class="{ active: feedTab === 'posts' }" class="tab-btn">Posts</button>
+                <button @click="feedTab='media'; loadFeedMedia()" :class="{ active: feedTab === 'media' }" class="tab-btn">Media</button>
+            </div>
+
+            <!-- Posts tab -->
+            <div x-show="feedTab === 'posts'">
+                <template x-for="post in activeFeed.posts" :key="post.id">
+                    <article class="post-card" @click="openPost(post)">
+                        <h2 class="post-title" x-text="post.title"></h2>
+                        <span class="post-date" x-text="formatDate(post.published_at)"></span>
+                        <p class="post-summary" x-text="stripHtml(post.summary).slice(0, 280)"></p>
+                        <template x-if="post.attachments && post.attachments.filter(a => a.type === 'image').length > 0">
+                            <div class="post-images">
+                                <template x-for="img in post.attachments.filter(a => a.type === 'image').slice(0, 2)" :key="img.url">
+                                    <img :src="img.url" class="post-img" loading="lazy" @error="$el.style.display='none'" alt="">
+                                </template>
+                            </div>
+                        </template>
+                        <div class="post-footer">
+                            <span class="post-link" @click.stop="openUrl(post.url)">Read →</span>
+                        </div>
+                    </article>
+                </template>
+            </div>
+
+            <!-- Media tab -->
+            <div x-show="feedTab === 'media'">
+                <template x-if="feedMediaLoading">
+                    <div class="loading">Loading media…</div>
+                </template>
+                <template x-if="!feedMediaLoading && feedMedia.length === 0">
+                    <div class="empty-state"><p class="muted">No media found for this feed.</p></div>
+                </template>
+                <div class="media-grid">
+                    <template x-for="item in feedMedia" :key="item.id">
+                        <div class="media-item" @click="openPostById(item.post_id)">
+                            <template x-if="item.type === 'image'">
+                                <img :src="item.url" class="media-thumb" loading="lazy" @error="$el.style.display='none'" :alt="item.title">
+                            </template>
+                            <template x-if="item.type === 'video'">
+                                <div class="media-video">
+                                    <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                                    <img :src="item.url" class="media-thumb" loading="lazy" @error="$el.style.display='none'" :alt="item.title">
+                                </div>
+                            </template>
+                            <template x-if="item.type === 'audio'">
+                                <div class="media-audio">
+                                    <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+                                    <span class="muted" x-text="item.title || 'Audio'"></span>
+                                </div>
+                            </template>
+                            <span class="media-title" x-text="item.post_title"></span>
+                        </div>
+                    </template>
+                </div>
+            </div>
         </div>
     </template>
 </main>
@@ -165,7 +272,7 @@
         <template x-if="activePost">
             <div>
                 <button @click="activePost = null" class="modal-close">✕</button>
-                <div class="post-header">
+                <div class="post-header" @click="activePost=null; openFeed(activePost.feed_id)" style="cursor:pointer">
                     <img :src="activePost.feed_icon || '/static/icon-192.png'" class="feed-avatar" @error="$el.src='/static/icon-192.png'" alt="">
                     <div class="post-meta">
                         <span class="feed-name" x-text="activePost.feed_title"></span>
@@ -173,12 +280,32 @@
                     </div>
                 </div>
                 <h2 class="post-title-full" x-text="activePost.title"></h2>
+
+                <!-- Link previews from content -->
                 <template x-if="activePost.content">
-                    <div class="post-content" x-html="activePost.content"></div>
+                    <div class="post-content" x-html="renderContent(activePost.content)"></div>
                 </template>
                 <template x-if="!activePost.content && activePost.summary">
-                    <div class="post-content" x-html="activePost.summary"></div>
+                    <div class="post-content" x-html="renderContent(activePost.summary)"></div>
                 </template>
+
+                <!-- Inline images from attachments -->
+                <template x-if="activePost.attachments && activePost.attachments.filter(a => a.type === 'image').length > 0">
+                    <div class="post-images-full">
+                        <template x-for="img in activePost.attachments.filter(a => a.type === 'image')" :key="img.url">
+                            <img :src="img.url" class="post-img-full" loading="lazy" @error="$el.style.display='none'" :alt="img.title">
+                        </template>
+                    </div>
+                </template>
+
+                <!-- Audio/video attachments -->
+                <template x-for="att in (activePost.attachments || []).filter(a => a.type === 'audio')" :key="att.url">
+                    <audio controls class="post-audio" :src="att.url"></audio>
+                </template>
+                <template x-for="att in (activePost.attachments || []).filter(a => a.type === 'video')" :key="att.url">
+                    <video controls class="post-video" :src="att.url"></video>
+                </template>
+
                 <template x-if="activePost.url">
                     <a :href="activePost.url" target="_blank" class="btn-primary read-original">Read original →</a>
                 </template>
@@ -196,10 +323,16 @@
         </svg>
         <span>Home</span>
     </button>
-    <button @click="currentView='explore'; loadFeeds()" :class="{ active: currentView === 'explore' }" class="nav-btn">
+    <button @click="goSearch()" :class="{ active: currentView === 'search' }" class="nav-btn">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8"/>
             <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <span>Search</span>
+    </button>
+    <button @click="currentView='explore'; loadFeeds()" :class="{ active: currentView === 'explore' }" class="nav-btn">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12h14"/>
         </svg>
         <span>Explore</span>
     </button>
