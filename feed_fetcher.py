@@ -1,5 +1,4 @@
 """Feed fetching, parsing, and discovery logic."""
-import re
 import logging
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
@@ -241,24 +240,6 @@ def fetch_feed(feed_url, etag=None, last_modified=None):
         return feed_info
 
 
-def extract_feed_icon(feed, site_url):
-    """Try to extract a feed/site icon URL."""
-    # feedparser may have image
-    if feed.get("image"):
-        img = feed["image"]
-        if isinstance(img, dict):
-            return img.get("href", img.get("url", ""))
-        return str(img)
-
-    # Try favicon
-    if site_url:
-        parsed = urlparse(site_url)
-        if parsed.netloc:
-            return f"https://www.google.com/s2/favicons?domain={parsed.netloc}&sz=64"
-
-    return ""
-
-
 def fetch_og_metadata(url, timeout=10):
     """
     Fetch OpenGraph metadata for a URL.
@@ -311,23 +292,15 @@ def fetch_og_metadata(url, timeout=10):
         return {"url": url, "title": url, "error": str(e)}
 
 
-def _extract_feed_icon_impl(feed, site_url):
+def extract_feed_icon(feed, site_url):
     """Try to extract a feed/site icon URL."""
-    # feedparser may have image
     if feed.get("image"):
         img = feed["image"]
         if isinstance(img, dict):
             return img.get("href", img.get("url", ""))
         return str(img)
-
-    # Try favicon
     if site_url:
         parsed = urlparse(site_url)
         if parsed.netloc:
             return f"https://www.google.com/s2/favicons?domain={parsed.netloc}&sz=64"
-
     return ""
-
-
-# Alias for backwards compat
-extract_feed_icon = _extract_feed_icon_impl

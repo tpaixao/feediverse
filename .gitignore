@@ -4,3 +4,7 @@ htmlcov/
 *.pyc
 __pycache__/
 .pytest_cache/
+
+# Runtime artifacts
+feediverse.db
+venv/
