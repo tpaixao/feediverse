@@ -17,6 +17,7 @@ A read-only PWA RSS reader with a social-media-style feed UI. Inspired by HyperT
 
 - **Backend**: FastAPI + feedparser + SQLite + APScheduler
 - **Frontend**: Alpine.js + vanilla CSS (no build step)
+- **Testing**: pytest + pytest-cov (160 tests, 91% coverage)
 - **Deploy**: systemd service
 
 ## Quick Start
@@ -154,12 +155,27 @@ http://<your-server-ip>:8090
 - [x] OPML import/export
 - [x] OpenGraph link preview API (`/api/preview`)
 
+### Phase 2.5 ✅
+- [x] pytest test suite (160 tests, 91% coverage)
+- [x] Bug fixes from test coverage: dict-safe attribute access, twitter: meta parsing, non-media link attachments
+
 ### Phase 3 (Future)
 - [ ] RSS Bridge integration for feedless sites
 - [ ] Hot HyperLinks — trending links from followed feeds
 - [ ] Notifications for new posts (Web Push API)
 - [ ] Bookmark/save posts
 - [ ] OpenGraph card rendering in timeline (rich link previews)
+
+## Testing
+
+```bash
+cd projects/feediverse
+source venv/bin/activate
+pip install pytest pytest-cov httpx  # if not already installed
+python -m pytest --cov=app --cov=db --cov=feed_fetcher --cov-report=term-missing
+```
+
+160 tests across 3 modules covering all API endpoints, DB operations, feed parsing, discovery, OG metadata, OPML import/export, and edge cases. Tests use temp databases and mocked HTTP — no network calls.
 
 ## License
 
