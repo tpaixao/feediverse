@@ -1,7 +1,7 @@
 """FastAPI application for Feediverse — read-only RSS reader PWA."""
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -100,7 +100,7 @@ def api_opml_export():
         '<opml version="2.0">',
         '  <head>',
         '    <title>Feediverse Subscriptions</title>',
-        f'    <dateCreated>{datetime.now().isoformat()}</dateCreated>',
+        f'    <dateCreated>{datetime.now(timezone.utc).isoformat()}</dateCreated>',
         '  </head>',
         '  <body>',
         '    <outline text="Feeds" title="Feeds">',

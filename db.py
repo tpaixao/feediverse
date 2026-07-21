@@ -1,7 +1,7 @@
 """SQLite database layer for Feediverse."""
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "feediverse.db"
@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS feeds (
     fetch_error TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 );
+-- NOTE: created_at uses datetime('now') for legacy compatibility with existing rows.
+-- New rows get timestamps set explicitly in Python (UTC-aware) via _utc_now().
 
 CREATE TABLE IF NOT EXISTS posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,6 +36,8 @@ CREATE TABLE IF NOT EXISTS posts (
     fetched_at TEXT DEFAULT (datetime('now')),
     UNIQUE(feed_id, guid)
 );
+-- NOTE: fetched_at uses datetime('now') for legacy compatibility. New rows get
+-- UTC-aware timestamps set explicitly via add_post().
 
 CREATE TABLE IF NOT EXISTS attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,6 +51,11 @@ CREATE INDEX IF NOT EXISTS idx_posts_published ON posts(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_feed ON posts(feed_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_post ON attachments(post_id);
 """
+
+
+def _utc_now():
+    """Return current UTC time as ISO 8601 string with +00:00 suffix."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 def init_db():
@@ -75,8 +84,8 @@ def add_feed(url, title, description, site_url, icon_url):
     with get_conn() as conn:
         try:
             cur = conn.execute(
-                "INSERT INTO feeds (url, title, description, site_url, icon_url) VALUES (?, ?, ?, ?, ?)",
-                (url, title, description, site_url, icon_url),
+                "INSERT INTO feeds (url, title, description, site_url, icon_url, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (url, title, description, site_url, icon_url, _utc_now()),
             )
             return cur.lastrowid
         except sqlite3.IntegrityError:
@@ -110,8 +119,8 @@ def delete_feed(feed_id):
 def update_feed_fetched(feed_id, etag, last_modified, error=None):
     with get_conn() as conn:
         conn.execute(
-            "UPDATE feeds SET last_fetched = datetime('now'), etag = ?, last_modified = ?, fetch_error = ? WHERE id = ?",
-            (etag, last_modified, error, feed_id),
+            "UPDATE feeds SET last_fetched = ?, etag = ?, last_modified = ?, fetch_error = ? WHERE id = ?",
+            (_utc_now(), etag, last_modified, error, feed_id),
         )
 
 
@@ -125,12 +134,13 @@ def update_feed_meta(feed_id, title, description, site_url, icon_url):
 
 def add_post(feed_id, guid, title, summary, content, url, author, published_at):
     """Insert a post, ignore if already exists (by guid). Return post id or None."""
+    fetched_at = _utc_now()
     with get_conn() as conn:
         try:
             cur = conn.execute(
-                "INSERT INTO posts (feed_id, guid, title, summary, content, url, author, published_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (feed_id, guid, title, summary, content, url, author, published_at),
+                "INSERT INTO posts (feed_id, guid, title, summary, content, url, author, published_at, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (feed_id, guid, title, summary, content, url, author, published_at, fetched_at),
             )
             return cur.lastrowid
         except sqlite3.IntegrityError:
