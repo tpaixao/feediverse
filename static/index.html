@@ -42,6 +42,10 @@
             <span x-text="sortBy === 'published' ? 'Published' : 'Added'"></span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M6 12h12M9 18h6"/></svg>
         </button>
+        <button @click="markAllRead()" class="sort-toggle" x-show="posts.some(p => !p.read_at)" style="margin-left:auto">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+            <span>Mark all read</span>
+        </button>
     </div>
     <template x-if="loading && posts.length === 0">
         <div class="loading">Loading feed…</div>
@@ -54,7 +58,7 @@
         </div>
     </template>
     <template x-for="post in posts" :key="post.id">
-        <article class="post-card" @click="openPost(post)">
+        <article class="post-card" :class="{ 'post-read': post.read_at }" @click="openPost(post)">
             <div class="post-header" @click.stop="openFeed(post.feed_id)" style="cursor:pointer">
                 <img :src="post.feed_icon || '/static/icon-192.png'" class="feed-avatar" @error="$el.src='/static/icon-192.png'" alt="">
                 <div class="post-meta">
@@ -185,7 +189,7 @@
         <p class="muted result-count"><span x-text="searchTotal || searchResults.length"></span> result<span x-show="(searchTotal || searchResults.length) !== 1">s</span></p>
     </template>
     <template x-for="post in searchResults" :key="post.id">
-        <article class="post-card" @click="openPost(post)">
+        <article class="post-card" :class="{ 'post-read': post.read_at }" @click="openPost(post)">
             <div class="post-header" @click.stop="openFeed(post.feed_id)" style="cursor:pointer">
                 <img :src="post.feed_icon || '/static/icon-192.png'" class="feed-avatar" @error="$el.src='/static/icon-192.png'" alt="">
                 <div class="post-meta">
@@ -222,7 +226,7 @@
             <!-- Posts tab -->
             <div x-show="feedTab === 'posts'">
                 <template x-for="post in activeFeed.posts" :key="post.id">
-                    <article class="post-card" @click="openPost(post)">
+                    <article class="post-card" :class="{ 'post-read': post.read_at }" @click="openPost(post)">
                         <h2 class="post-title" x-text="post.title"></h2>
                         <span class="post-date" x-text="formatDate(post.published_at)"></span>
                         <p class="post-summary" x-text="stripHtml(post.summary).slice(0, 280)"></p>
@@ -289,6 +293,8 @@
                     </div>
                 </div>
                 <h2 class="post-title-full" x-text="activePost.title"></h2>
+
+                <button @click.stop="toggleRead(activePost)" class="toggle-read-btn" x-text="activePost.read_at ? 'Mark unread' : 'Mark read'"></button>
 
                 <!-- Link previews from content -->
                 <template x-if="activePost.content">

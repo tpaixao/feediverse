@@ -81,11 +81,15 @@ body {
 }
 .post-card:hover { background: var(--bg-hover); }
 .post-card:active { transform: scale(0.99); }
+.post-card.post-read { opacity: 0.5; }
+.post-card.post-read .post-title { font-weight: 400; }
+.post-card.post-read:hover { opacity: 0.75; }
 
 /* Sort bar */
 .sort-bar {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
     margin-bottom: 8px;
 }
 .sort-toggle {
@@ -501,6 +505,19 @@ body {
 .post-content pre { overflow-x: auto; background: var(--bg); padding: 12px; border-radius: 8px; font-size: 13px; }
 .post-content blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--text-muted); margin: 12px 0; }
 .read-original { display: inline-block; margin-top: 16px; text-decoration: none; }
+.toggle-read-btn {
+    display: inline-block;
+    background: var(--bg-hover);
+    border: none;
+    color: var(--text-muted);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    margin-bottom: 16px;
+    transition: background 0.15s, color 0.15s;
+}
+.toggle-read-btn:hover { background: var(--border); color: var(--text); }
 
 /* Messages */
 .error-msg {

@@ -291,6 +291,41 @@ function feediverse() {
         // --- Post ---
         openPost(post) {
             this.activePost = post;
+            if (post && !post.read_at) {
+                this.markRead(post);
+            }
+        },
+
+        async markRead(post) {
+            post.read_at = new Date().toISOString();
+            try {
+                await fetch(`${API}/posts/${post.id}/read`, { method: 'POST' });
+            } catch (e) {
+                console.error('Failed to mark read:', e);
+            }
+        },
+
+        async toggleRead(post) {
+            if (post.read_at) {
+                post.read_at = null;
+                try {
+                    await fetch(`${API}/posts/${post.id}/unread`, { method: 'POST' });
+                } catch (e) {
+                    post.read_at = new Date().toISOString();
+                    console.error('Failed to mark unread:', e);
+                }
+            } else {
+                await this.markRead(post);
+            }
+        },
+
+        async markAllRead() {
+            try {
+                await fetch(`${API}/mark-all-read`, { method: 'POST' });
+                this.posts.forEach(p => p.read_at = p.read_at || new Date().toISOString());
+            } catch (e) {
+                console.error('Failed to mark all read:', e);
+            }
         },
 
         async openPostById(postId) {

@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS posts (
     author TEXT,
     published_at TEXT,
     fetched_at TEXT DEFAULT (datetime('now')),
+    read_at TEXT,
     UNIQUE(feed_id, guid)
 );
 -- NOTE: fetched_at uses datetime('now') for legacy compatibility. New rows get
@@ -82,11 +83,20 @@ def _utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _migrate(conn):
+    """Run lightweight migrations for existing databases."""
+    # Add read_at column if missing (introduced after initial release)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(posts)").fetchall()}
+    if "read_at" not in cols:
+        conn.execute("ALTER TABLE posts ADD COLUMN read_at TEXT")
+
+
 def init_db():
-    """Initialize database with schema and rebuild FTS index."""
+    """Initialize database with schema, run migrations, rebuild FTS index."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         # Rebuild FTS index from scratch (idempotent; no-op on empty tables)
         conn.execute("INSERT INTO posts_fts(posts_fts) VALUES('rebuild')")
 
@@ -290,12 +300,59 @@ def search_post_count(query):
             return 0
 
 
+def mark_post_read(post_id):
+    """Mark a post as read (set read_at to current UTC time)."""
+    with get_conn() as conn:
+        conn.execute("UPDATE posts SET read_at = ? WHERE id = ?", (_utc_now(), post_id))
+
+
+def mark_post_unread(post_id):
+    """Mark a post as unread (clear read_at)."""
+    with get_conn() as conn:
+        conn.execute("UPDATE posts SET read_at = NULL WHERE id = ?", (post_id,))
+
+
+def mark_feed_read(feed_id):
+    """Mark all posts in a feed as read."""
+    now = _utc_now()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE posts SET read_at = ? WHERE feed_id = ? AND read_at IS NULL",
+            (now, feed_id),
+        )
+
+
+def mark_all_read():
+    """Mark all posts as read."""
+    now = _utc_now()
+    with get_conn() as conn:
+        conn.execute("UPDATE posts SET read_at = ? WHERE read_at IS NULL", (now,))
+
+
+def get_unread_count(feed_id=None):
+    """Count unread posts, optionally filtered by feed."""
+    with get_conn() as conn:
+        if feed_id:
+            row = conn.execute(
+                "SELECT COUNT(*) as c FROM posts WHERE feed_id = ? AND read_at IS NULL",
+                (feed_id,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) as c FROM posts WHERE read_at IS NULL"
+            ).fetchone()
+        return row["c"]
+
+
 def get_stats():
     with get_conn() as conn:
         feeds_count = conn.execute("SELECT COUNT(*) as c FROM feeds").fetchone()["c"]
         posts_count = conn.execute("SELECT COUNT(*) as c FROM posts").fetchone()["c"]
+        unread = conn.execute(
+            "SELECT COUNT(*) as c FROM posts WHERE read_at IS NULL"
+        ).fetchone()["c"]
         last_fetch = conn.execute("SELECT MAX(last_fetched) as l FROM feeds").fetchone()["l"]
-        return {"feeds": feeds_count, "posts": posts_count, "last_fetch": last_fetch}
+        return {"feeds": feeds_count, "posts": posts_count, "unread": unread, "last_fetch": last_fetch}
 
 
 def add_opml_feeds(feeds_data):

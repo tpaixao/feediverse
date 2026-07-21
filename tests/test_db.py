@@ -488,3 +488,134 @@ class TestFTS5Search:
         # Old title should no longer match
         results_old = db.search_posts("Third Post No Attachments")
         assert all(r["id"] != pid for r in results_old)
+
+
+class TestReadUnread:
+    """Tests for post read/unread state."""
+
+    def test_new_post_is_unread(self, sample_feed_id, sample_posts):
+        post = db.get_timeline(limit=1)[0]
+        assert post["read_at"] is None
+
+    def test_mark_post_read(self, sample_feed_id, sample_posts):
+        pid = sample_posts[0]
+        db.mark_post_read(pid)
+        post = db.get_timeline(limit=1)[0]
+        assert post["read_at"] is not None
+
+    def test_mark_post_unread(self, sample_feed_id, sample_posts):
+        pid = sample_posts[0]
+        db.mark_post_read(pid)
+        assert db.get_timeline(limit=1)[0]["read_at"] is not None
+        db.mark_post_unread(pid)
+        post = db.get_timeline(limit=1)[0]
+        assert post["read_at"] is None
+
+    def test_mark_feed_read(self, sample_feed_id, sample_posts, second_feed_id):
+        # Add a post to second feed
+        db.add_post(second_feed_id, "second-feed-post", "Second Feed Post",
+                    "summary", "content", "https://another.com/post",
+                    "A", "2026-07-10T12:00:00")
+        db.mark_feed_read(sample_feed_id)
+        # All sample_posts should be read
+        with db.get_conn() as conn:
+            read_count = conn.execute(
+                "SELECT COUNT(*) as c FROM posts WHERE feed_id = ? AND read_at IS NOT NULL",
+                (sample_feed_id,),
+            ).fetchone()["c"]
+            assert read_count == len(sample_posts)
+        # Second feed post should still be unread
+        unread = db.get_unread_count(feed_id=second_feed_id)
+        assert unread == 1
+
+    def test_mark_all_read(self, sample_feed_id, sample_posts, second_feed_id):
+        db.add_post(second_feed_id, "second-feed-post", "Second Feed Post",
+                    "summary", "content", "https://another.com/post",
+                    "A", "2026-07-10T12:00:00")
+        db.mark_all_read()
+        assert db.get_unread_count() == 0
+
+    def test_get_unread_count(self, sample_feed_id, sample_posts):
+        assert db.get_unread_count() == 3
+        db.mark_post_read(sample_posts[0])
+        assert db.get_unread_count() == 2
+        assert db.get_unread_count(feed_id=sample_feed_id) == 2
+
+    def test_stats_includes_unread(self, sample_feed_id, sample_posts):
+        stats = db.get_stats()
+        assert "unread" in stats
+        assert stats["unread"] == 3
+        db.mark_post_read(sample_posts[0])
+        stats = db.get_stats()
+        assert stats["unread"] == 2
+
+    def test_read_at_in_timeline(self, sample_feed_id, sample_posts):
+        pid = sample_posts[0]
+        db.mark_post_read(pid)
+        posts = db.get_timeline()
+        post = next(p for p in posts if p["id"] == pid)
+        assert post["read_at"] is not None
+        # Other posts should still be unread
+        other = next(p for p in posts if p["id"] != pid)
+        assert other["read_at"] is None
+
+    def test_read_at_in_search(self, sample_feed_id, sample_posts):
+        pid = sample_posts[0]  # "First Post About Python"
+        db.mark_post_read(pid)
+        results = db.search_posts("Python")
+        post = next(p for p in results if p["id"] == pid)
+        assert post["read_at"] is not None
+
+    def test_read_at_in_feed_posts(self, sample_feed_id, sample_posts):
+        pid = sample_posts[0]
+        db.mark_post_read(pid)
+        posts = db.get_timeline(feed_id=sample_feed_id)
+        post = next(p for p in posts if p["id"] == pid)
+        assert post["read_at"] is not None
+
+    def test_migration_adds_read_at(self, tmp_path, monkeypatch):
+        """init_db should add read_at column to existing tables without it."""
+        db_path = tmp_path / "test.db"
+        monkeypatch.setattr(db, "DB_PATH", db_path)
+        # Create DB with old schema (no read_at)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("""
+                CREATE TABLE feeds (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT UNIQUE NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    site_url TEXT,
+                    icon_url TEXT,
+                    etag TEXT,
+                    last_modified TEXT,
+                    last_fetched TEXT,
+                    fetch_error TEXT
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE posts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    feed_id INTEGER NOT NULL REFERENCES feeds(id),
+                    guid TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    summary TEXT,
+                    content TEXT,
+                    url TEXT,
+                    author TEXT,
+                    published_at TEXT,
+                    fetched_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(feed_id, guid)
+                )
+            """)
+            conn.execute("INSERT INTO feeds (url, title) VALUES ('https://example.com/feed.xml', 'Test')")
+            conn.execute("INSERT INTO posts (feed_id, guid, title) VALUES (1, 'g1', 'Post 1')")
+        # Now run init_db which should migrate
+        db.init_db()
+        with db.get_conn() as conn:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(posts)").fetchall()}
+            assert "read_at" in cols
+            # Existing data preserved
+            row = conn.execute("SELECT title, read_at FROM posts WHERE id = 1").fetchone()
+            assert row["title"] == "Post 1"
+            assert row["read_at"] is None

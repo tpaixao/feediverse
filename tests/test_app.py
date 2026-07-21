@@ -536,3 +536,53 @@ class TestRefresh:
         assert resp.status_code == 200  # refresh should not crash
         feed = db.get_feed_by_id(sample_feed_id)
         assert "Unexpected crash" in (feed["fetch_error"] or "")
+
+
+class TestReadUnreadAPI:
+    """Tests for read/unread API endpoints."""
+
+    def test_mark_read(self, client, sample_feed_id, sample_posts):
+        resp = client.post(f"/api/posts/{sample_posts[0]}/read")
+        assert resp.status_code == 200
+        assert resp.json()["read"] is True
+        # Verify via timeline
+        posts = client.get("/api/timeline").json()["posts"]
+        post = next(p for p in posts if p["id"] == sample_posts[0])
+        assert post["read_at"] is not None
+
+    def test_mark_unread(self, client, sample_feed_id, sample_posts):
+        client.post(f"/api/posts/{sample_posts[0]}/read")
+        resp = client.post(f"/api/posts/{sample_posts[0]}/unread")
+        assert resp.status_code == 200
+        assert resp.json()["read"] is False
+        posts = client.get("/api/timeline").json()["posts"]
+        post = next(p for p in posts if p["id"] == sample_posts[0])
+        assert post["read_at"] is None
+
+    def test_mark_feed_read(self, client, sample_feed_id, sample_posts):
+        resp = client.post(f"/api/feeds/{sample_feed_id}/mark-read")
+        assert resp.status_code == 200
+        assert resp.json()["marked"] is True
+        assert client.get("/api/stats").json()["unread"] == 0
+
+    def test_mark_feed_read_not_found(self, client):
+        resp = client.post("/api/feeds/99999/mark-read")
+        assert resp.status_code == 404
+
+    def test_mark_all_read(self, client, sample_feed_id, sample_posts, second_feed_id):
+        db.add_post(second_feed_id, "second", "Second Feed Post",
+                    "s", "c", "https://another.com/p", "A", "2026-07-10T12:00:00")
+        resp = client.post("/api/mark-all-read")
+        assert resp.status_code == 200
+        assert client.get("/api/stats").json()["unread"] == 0
+
+    def test_stats_includes_unread(self, client, sample_feed_id, sample_posts):
+        data = client.get("/api/stats").json()
+        assert "unread" in data
+        assert data["unread"] == 3
+
+    def test_timeline_includes_read_at(self, client, sample_feed_id, sample_posts):
+        client.post(f"/api/posts/{sample_posts[0]}/read")
+        posts = client.get("/api/timeline").json()["posts"]
+        assert any(p["read_at"] for p in posts)
+        assert any(not p["read_at"] for p in posts)

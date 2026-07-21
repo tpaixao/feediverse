@@ -303,6 +303,33 @@ def api_search(q: str = Query(...), limit: int = 50, offset: int = 0):
     return {"posts": posts, "query": q, "total": total, "limit": limit, "offset": offset}
 
 
+@app.post("/api/posts/{post_id}/read")
+def api_mark_read(post_id: int):
+    db.mark_post_read(post_id)
+    return {"read": True}
+
+
+@app.post("/api/posts/{post_id}/unread")
+def api_mark_unread(post_id: int):
+    db.mark_post_unread(post_id)
+    return {"read": False}
+
+
+@app.post("/api/feeds/{feed_id}/mark-read")
+def api_mark_feed_read(feed_id: int):
+    feed = db.get_feed_by_id(feed_id)
+    if not feed:
+        raise HTTPException(404, "Feed not found")
+    db.mark_feed_read(feed_id)
+    return {"marked": True}
+
+
+@app.post("/api/mark-all-read")
+def api_mark_all_read():
+    db.mark_all_read()
+    return {"marked": True}
+
+
 @app.get("/api/feeds/{feed_id}/media")
 def api_feed_media(feed_id: int, limit: int = 50):
     """Get media attachments for a feed (for the media tab)."""
