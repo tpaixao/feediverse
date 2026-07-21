@@ -181,6 +181,9 @@
             <p class="muted">Search across all your posts by title, summary, or content.</p>
         </div>
     </template>
+    <template x-if="!searching && searchResults.length > 0">
+        <p class="muted result-count"><span x-text="searchTotal || searchResults.length"></span> result<span x-show="(searchTotal || searchResults.length) !== 1">s</span></p>
+    </template>
     <template x-for="post in searchResults" :key="post.id">
         <article class="post-card" @click="openPost(post)">
             <div class="post-header" @click.stop="openFeed(post.feed_id)" style="cursor:pointer">

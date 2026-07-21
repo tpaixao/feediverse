@@ -1,4 +1,4 @@
-const CACHE_NAME = 'feediverse-v1';
+const CACHE_NAME = 'feediverse-v2-fts5';
 const STATIC_ASSETS = [
     '/',
     '/static/index.html',

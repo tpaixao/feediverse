@@ -178,6 +178,7 @@ body {
 }
 .empty-state p { font-size: 18px; margin-bottom: 8px; }
 .empty-state .muted { font-size: 14px; margin-bottom: 20px; }
+.result-count { font-size: 13px; margin: 8px 0 4px; }
 .muted { color: var(--text-muted); }
 
 /* Buttons */

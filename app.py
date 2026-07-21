@@ -299,7 +299,8 @@ def api_search(q: str = Query(...), limit: int = 50, offset: int = 0):
     if len(q.strip()) < 2:
         raise HTTPException(400, "Query too short")
     posts = db.search_posts(q, limit=limit, offset=offset)
-    return {"posts": posts, "query": q, "limit": limit, "offset": offset}
+    total = db.search_post_count(q)
+    return {"posts": posts, "query": q, "total": total, "limit": limit, "offset": offset}
 
 
 @app.get("/api/feeds/{feed_id}/media")

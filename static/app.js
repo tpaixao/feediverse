@@ -27,6 +27,7 @@ function feediverse() {
         // Search state
         searchQuery: '',
         searchResults: [],
+        searchTotal: 0,
         searching: false,
 
         // Feed detail state
@@ -75,6 +76,7 @@ function feediverse() {
             this.viewTitle = 'Search';
             this.searchQuery = '';
             this.searchResults = [];
+            this.searchTotal = 0;
             this.$nextTick(() => {
                 if (this.$refs.searchInput) this.$refs.searchInput.focus();
             });
@@ -129,6 +131,7 @@ function feediverse() {
             const q = this.searchQuery.trim();
             if (q.length < 2) {
                 this.searchResults = [];
+                this.searchTotal = 0;
                 return;
             }
             this.searching = true;
@@ -136,6 +139,7 @@ function feediverse() {
                 const res = await fetch(`${API}/search?q=${encodeURIComponent(q)}&limit=50`);
                 const data = await res.json();
                 this.searchResults = data.posts;
+                this.searchTotal = data.total || data.posts.length;
             } catch (e) {
                 console.error('Search failed:', e);
             } finally {

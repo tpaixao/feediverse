@@ -50,6 +50,30 @@ CREATE TABLE IF NOT EXISTS attachments (
 CREATE INDEX IF NOT EXISTS idx_posts_published ON posts(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_feed ON posts(feed_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_post ON attachments(post_id);
+
+-- FTS5 full-text search index (external content table linked to posts)
+CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
+    title, summary, content,
+    content='posts', content_rowid='id'
+);
+
+-- Triggers to keep FTS index in sync with posts table
+CREATE TRIGGER IF NOT EXISTS posts_ai AFTER INSERT ON posts BEGIN
+    INSERT INTO posts_fts(rowid, title, summary, content)
+    VALUES (new.id, new.title, new.summary, new.content);
+END;
+
+CREATE TRIGGER IF NOT EXISTS posts_ad AFTER DELETE ON posts BEGIN
+    INSERT INTO posts_fts(posts_fts, rowid, title, summary, content)
+    VALUES ('delete', old.id, old.title, old.summary, old.content);
+END;
+
+CREATE TRIGGER IF NOT EXISTS posts_au AFTER UPDATE ON posts BEGIN
+    INSERT INTO posts_fts(posts_fts, rowid, title, summary, content)
+    VALUES ('delete', old.id, old.title, old.summary, old.content);
+    INSERT INTO posts_fts(rowid, title, summary, content)
+    VALUES (new.id, new.title, new.summary, new.content);
+END;
 """
 
 
@@ -59,10 +83,12 @@ def _utc_now():
 
 
 def init_db():
-    """Initialize database with schema."""
+    """Initialize database with schema and rebuild FTS index."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        # Rebuild FTS index from scratch (idempotent; no-op on empty tables)
+        conn.execute("INSERT INTO posts_fts(posts_fts) VALUES('rebuild')")
 
 
 @contextmanager
@@ -198,17 +224,49 @@ def get_post_count(feed_id=None):
         return row["c"]
 
 
+def _fts5_escape(query):
+    """Escape a user query for safe FTS5 MATCH.
+
+    Each whitespace-separated token is wrapped in double quotes (with internal
+    quotes doubled per FTS5 convention), producing a quoted-token AND query.
+    This prevents FTS5 syntax errors from special characters like :, (, ).
+
+    Trailing * is preserved as a prefix wildcard (e.g. 'Pyth*' -> '"Pyth"*').
+    """
+    tokens = query.strip().split()
+    if not tokens:
+        return '""'
+    escaped = []
+    for t in tokens:
+        if t.endswith('*') and len(t) > 1:
+            prefix = t[:-1].replace('"', '""')
+            escaped.append(f'"{prefix}"*')
+        else:
+            t = t.replace('"', '""')
+            escaped.append(f'"{t}"')
+    return ' '.join(escaped)
+
+
 def search_posts(query, limit=50, offset=0):
-    """Full-text search in post title and summary using LIKE."""
+    """Full-text search across post title, summary, and content using FTS5.
+
+    Results are ranked by BM25 relevance (most relevant first) with feed info
+    and attachments attached.
+    """
+    fts_query = _fts5_escape(query)
     with get_conn() as conn:
-        pattern = f"%{query}%"
-        rows = conn.execute(
-            "SELECT p.*, f.title as feed_title, f.icon_url as feed_icon, f.site_url as feed_site "
-            "FROM posts p JOIN feeds f ON p.feed_id = f.id "
-            "WHERE p.title LIKE ? OR p.summary LIKE ? OR p.content LIKE ? "
-            "ORDER BY p.published_at DESC NULLS LAST LIMIT ? OFFSET ?",
-            (pattern, pattern, pattern, limit, offset),
-        ).fetchall()
+        try:
+            rows = conn.execute(
+                "SELECT p.*, f.title as feed_title, f.icon_url as feed_icon, f.site_url as feed_site "
+                "FROM posts_fts JOIN posts p ON p.id = posts_fts.rowid "
+                "JOIN feeds f ON p.feed_id = f.id "
+                "WHERE posts_fts MATCH ? "
+                "ORDER BY bm25(posts_fts), p.id "
+                "LIMIT ? OFFSET ?",
+                (fts_query, limit, offset),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
         posts = [dict(r) for r in rows]
         for post in posts:
             atts = conn.execute(
@@ -216,6 +274,20 @@ def search_posts(query, limit=50, offset=0):
             ).fetchall()
             post["attachments"] = [dict(a) for a in atts]
         return posts
+
+
+def search_post_count(query):
+    """Count matching posts for a search query (FTS5)."""
+    fts_query = _fts5_escape(query)
+    with get_conn() as conn:
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) as c FROM posts_fts WHERE posts_fts MATCH ?",
+                (fts_query,),
+            ).fetchone()
+            return row["c"]
+        except sqlite3.OperationalError:
+            return 0
 
 
 def get_stats():

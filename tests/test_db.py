@@ -396,3 +396,95 @@ class TestAddOpmlFeeds:
 
         assert result["added"] == 1
         assert result["failed"] == 1
+
+class TestFTS5Search:
+    """Tests for FTS5-based search: ranking, snippets, prefix, special chars."""
+
+    def test_fts_ranking_relevance(self, sample_feed_id, sample_posts):
+        """Post with query in title should rank higher than post with query only in summary."""
+        db.add_post(sample_feed_id, "rank-title", "Python Python Python",
+                    "other stuff", "other content",
+                    "https://example.com/rank1", "A", "2026-07-10T12:00:00")
+        db.add_post(sample_feed_id, "rank-summary", "Other title",
+                    "Python is mentioned here",
+                    "content without keyword",
+                    "https://example.com/rank2", "B", "2026-07-09T12:00:00")
+        results = db.search_posts("Python")
+        # Post with Python in title 3 times should be more relevant
+        titles = [r["title"] for r in results]
+        assert "Python Python Python" in titles
+        rank_title_idx = titles.index("Python Python Python")
+        rank_summary_idx = titles.index("Other title")
+        assert rank_title_idx < rank_summary_idx
+
+    def test_fts_multi_word_and_semantics(self, sample_feed_id, sample_posts):
+        """Multi-word query should match posts containing all tokens (AND semantics)."""
+        results = db.search_posts("Python testing")
+        # Should match posts containing both Python AND testing
+        # 'Second Post About Testing' has 'Testing strategies for Python apps' in summary
+        titles = [r["title"] for r in results]
+        assert "Second Post About Testing" in titles
+
+    def test_fts_prefix_matching(self, sample_feed_id, sample_posts):
+        """FTS5 prefix matching with * wildcard should work."""
+        results = db.search_posts("Pyth*")
+        titles = [r["title"] for r in results]
+        assert "First Post About Python" in titles
+
+    def test_fts_special_chars_safe(self, sample_feed_id, sample_posts):
+        """Query with FTS5 special characters should not crash (escaped)."""
+        # These would be syntax errors in raw FTS5; _fts5_escape handles them
+        for q in ['test(', 'test)', 'a:b', 'test"', 'foo AND bar']:
+            results = db.search_posts(q)
+            assert isinstance(results, list)  # should not raise
+
+    def test_fts_empty_results(self, sample_feed_id, sample_posts):
+        """Search for nonexistent term returns empty list."""
+        results = db.search_posts("zzznonexistentzzz")
+        assert results == []
+
+    def test_fts_search_post_count(self, sample_feed_id, sample_posts):
+        """search_post_count returns correct count for FTS5 query."""
+        count = db.search_post_count("Python")
+        assert count >= 2  # at least 2 posts mention Python
+        count_none = db.search_post_count("zzznonexistentzzz")
+        assert count_none == 0
+
+    def test_fts_search_post_count_special_chars(self, sample_feed_id, sample_posts):
+        """search_post_count handles special characters gracefully."""
+        for q in ['test(', 'a:b', 'foo"bar']:
+            count = db.search_post_count(q)
+            assert isinstance(count, int)
+
+    def test_fts_trigger_on_insert(self, sample_feed_id):
+        """Newly inserted posts should be immediately searchable via FTS trigger."""
+        db.add_post(sample_feed_id, "new-guid", "Freshly Inserted",
+                    "Unique searchable phrase",
+                    "Content here",
+                    "https://example.com/new", "A", "2026-07-10T12:00:00")
+        results = db.search_posts("Freshly")
+        titles = [r["title"] for r in results]
+        assert "Freshly Inserted" in titles
+
+    def test_fts_trigger_on_delete(self, sample_feed_id, sample_posts):
+        """Deleted posts should be removed from FTS index."""
+        pid = sample_posts[0]  # "First Post About Python"
+        with db.get_conn() as conn:
+            conn.execute("DELETE FROM posts WHERE id = ?", (pid,))
+        results = db.search_posts("First Post About Python")
+        titles = [r["title"] for r in results]
+        assert "First Post About Python" not in titles
+
+    def test_fts_trigger_on_update(self, sample_feed_id, sample_posts):
+        """Updated post content should be re-indexed."""
+        pid = sample_posts[2]  # "Third Post No Attachments"
+        with db.get_conn() as conn:
+            conn.execute(
+                "UPDATE posts SET title = 'Renamed Title XYZ' WHERE id = ?", (pid,)
+            )
+        results = db.search_posts("XYZ")
+        titles = [r["title"] for r in results]
+        assert "Renamed Title XYZ" in titles
+        # Old title should no longer match
+        results_old = db.search_posts("Third Post No Attachments")
+        assert all(r["id"] != pid for r in results_old)
