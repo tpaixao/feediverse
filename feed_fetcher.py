@@ -1,6 +1,6 @@
 """Feed fetching, parsing, and discovery logic."""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 
 import feedparser
@@ -98,7 +98,7 @@ def parse_date(entry):
         dt = entry.get(field)
         if dt:
             try:
-                return datetime(*dt[:6]).isoformat()
+                return datetime(*dt[:6], tzinfo=timezone.utc).isoformat()
             except Exception:
                 pass
     return None

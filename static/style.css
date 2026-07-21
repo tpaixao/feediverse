@@ -82,6 +82,28 @@ body {
 .post-card:hover { background: var(--bg-hover); }
 .post-card:active { transform: scale(0.99); }
 
+/* Sort bar */
+.sort-bar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+.sort-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.sort-toggle:hover { background: var(--bg-hover); color: var(--text); }
+.sort-toggle svg { opacity: 0.6; }
+
 .post-header {
     display: flex;
     align-items: center;

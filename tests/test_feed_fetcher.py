@@ -16,17 +16,17 @@ class TestParseDate:
     def test_parse_date_published(self):
         entry = {"published_parsed": (2026, 7, 10, 12, 0, 0, 0, 0, 0)}
         result = parse_date(entry)
-        assert result == "2026-07-10T12:00:00"
+        assert result == "2026-07-10T12:00:00+00:00"
 
     def test_parse_date_updated_fallback(self):
         entry = {"updated_parsed": (2026, 7, 9, 10, 30, 0, 0, 0, 0)}
         result = parse_date(entry)
-        assert result == "2026-07-09T10:30:00"
+        assert result == "2026-07-09T10:30:00+00:00"
 
     def test_parse_date_created_fallback(self):
         entry = {"created_parsed": (2026, 7, 8, 8, 0, 0, 0, 0, 0)}
         result = parse_date(entry)
-        assert result == "2026-07-08T08:00:00"
+        assert result == "2026-07-08T08:00:00+00:00"
 
     def test_parse_date_no_date(self):
         assert parse_date({}) is None
@@ -302,7 +302,7 @@ class TestFetchFeed:
         entry = result["entries"][0]
         assert entry["guid"] == "guid-1"
         assert entry["title"] == "Post 1"
-        assert entry["published_at"] == "2026-07-10T12:00:00"
+        assert entry["published_at"] == "2026-07-10T12:00:00+00:00"
 
 
 class TestDiscoverFeeds:

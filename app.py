@@ -281,15 +281,15 @@ def api_discover(url: str = Query(...)):
 
 
 @app.get("/api/timeline")
-def api_timeline(limit: int = 50, offset: int = 0):
-    posts = db.get_timeline(limit=limit, offset=offset)
+def api_timeline(limit: int = 50, offset: int = 0, sort: str = "published"):
+    posts = db.get_timeline(limit=limit, offset=offset, sort_by=sort)
     total = db.get_post_count()
     return {"posts": posts, "total": total, "limit": limit, "offset": offset}
 
 
 @app.get("/api/timeline/{feed_id}")
-def api_timeline_feed(feed_id: int, limit: int = 50, offset: int = 0):
-    posts = db.get_timeline(limit=limit, offset=offset, feed_id=feed_id)
+def api_timeline_feed(feed_id: int, limit: int = 50, offset: int = 0, sort: str = "published"):
+    posts = db.get_timeline(limit=limit, offset=offset, feed_id=feed_id, sort_by=sort)
     total = db.get_post_count(feed_id=feed_id)
     return {"posts": posts, "total": total, "limit": limit, "offset": offset}
 

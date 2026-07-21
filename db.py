@@ -145,21 +145,28 @@ def add_attachment(post_id, att_type, url, title):
         )
 
 
-def get_timeline(limit=50, offset=0, feed_id=None):
-    """Get posts reverse-chronologically, with feed info attached."""
+def get_timeline(limit=50, offset=0, feed_id=None, sort_by="published"):
+    """Get posts reverse-chronologically, with feed info attached.
+
+    sort_by: 'published' sorts by published_at, 'added' sorts by fetched_at.
+    """
+    if sort_by == "added":
+        order_col = "p.fetched_at"
+    else:
+        order_col = "p.published_at"
     with get_conn() as conn:
         if feed_id:
             rows = conn.execute(
-                "SELECT p.*, f.title as feed_title, f.icon_url as feed_icon, f.site_url as feed_site "
-                "FROM posts p JOIN feeds f ON p.feed_id = f.id "
-                "WHERE f.id = ? ORDER BY p.published_at DESC NULLS LAST LIMIT ? OFFSET ?",
+                f"SELECT p.*, f.title as feed_title, f.icon_url as feed_icon, f.site_url as feed_site "
+                f"FROM posts p JOIN feeds f ON p.feed_id = f.id "
+                f"WHERE f.id = ? ORDER BY {order_col} DESC NULLS LAST LIMIT ? OFFSET ?",
                 (feed_id, limit, offset),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT p.*, f.title as feed_title, f.icon_url as feed_icon, f.site_url as feed_site "
-                "FROM posts p JOIN feeds f ON p.feed_id = f.id "
-                "ORDER BY p.published_at DESC NULLS LAST LIMIT ? OFFSET ?",
+                f"SELECT p.*, f.title as feed_title, f.icon_url as feed_icon, f.site_url as feed_site "
+                f"FROM posts p JOIN feeds f ON p.feed_id = f.id "
+                f"ORDER BY {order_col} DESC NULLS LAST LIMIT ? OFFSET ?",
                 (limit, offset),
             ).fetchall()
         posts = [dict(r) for r in rows]

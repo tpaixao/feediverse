@@ -199,6 +199,22 @@ class TestGetTimeline:
         dates = [p["published_at"] for p in posts if p["published_at"]]
         assert dates == sorted(dates, reverse=True)
 
+    def test_get_timeline_sort_by_added(self, sample_feed_id, sample_posts):
+        """sort_by='added' should order by fetched_at instead of published_at."""
+        posts = db.get_timeline(sort_by="added")
+        assert len(posts) == 3
+        # fetched_at is auto-set on insert; should be descending
+        fetched = [p["fetched_at"] for p in posts if p["fetched_at"]]
+        assert fetched == sorted(fetched, reverse=True)
+
+    def test_get_timeline_sort_default_is_published(self, sample_feed_id, sample_posts):
+        """Default sort_by should be 'published'."""
+        posts_default = db.get_timeline()
+        posts_pub = db.get_timeline(sort_by="published")
+        ids_default = [p["id"] for p in posts_default]
+        ids_pub = [p["id"] for p in posts_pub]
+        assert ids_default == ids_pub
+
 
 class TestGetPostCount:
     def test_post_count_all(self, sample_feed_id, sample_posts):

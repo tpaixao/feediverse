@@ -15,6 +15,7 @@ function feediverse() {
         offset: 0,
         limit: 50,
         hasMore: true,
+        sortBy: 'published',
 
         // Discover state
         discoverUrl: '',
@@ -65,6 +66,7 @@ function feediverse() {
             this.viewHistory = [];
             this.posts = [];
             this.offset = 0;
+            this.sortBy = 'published';
             this.loadTimeline();
         },
 
@@ -82,7 +84,7 @@ function feediverse() {
         async loadTimeline() {
             this.loading = true;
             try {
-                const res = await fetch(`${API}/timeline?limit=${this.limit}&offset=${this.offset}`);
+                const res = await fetch(`${API}/timeline?limit=${this.limit}&offset=${this.offset}&sort=${this.sortBy}`);
                 const data = await res.json();
                 if (this.offset === 0) {
                     this.posts = data.posts;
@@ -95,6 +97,13 @@ function feediverse() {
             } finally {
                 this.loading = false;
             }
+        },
+
+        toggleSort() {
+            this.sortBy = this.sortBy === 'published' ? 'added' : 'published';
+            this.offset = 0;
+            this.posts = [];
+            this.loadTimeline();
         },
 
         async loadMore() {

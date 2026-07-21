@@ -274,6 +274,30 @@ class TestTimeline:
         assert data["posts"] == []
         assert data["total"] == 0
 
+    def test_timeline_sort_param(self, client, sample_feed_id, sample_posts):
+        """sort=added should return posts ordered by fetched_at."""
+        resp = client.get("/api/timeline", params={"sort": "added"})
+        assert resp.status_code == 200
+        posts = resp.json()["posts"]
+        assert len(posts) == 3
+        fetched = [p["fetched_at"] for p in posts if p["fetched_at"]]
+        assert fetched == sorted(fetched, reverse=True)
+
+    def test_timeline_sort_default_published(self, client, sample_feed_id, sample_posts):
+        """Default sort should be published (reverse chronological by published_at)."""
+        resp = client.get("/api/timeline")
+        posts = resp.json()["posts"]
+        pub = [p["published_at"] for p in posts if p["published_at"]]
+        assert pub == sorted(pub, reverse=True)
+
+    def test_timeline_sort_invalid_defaults_to_published(self, client, sample_feed_id, sample_posts):
+        """Invalid sort value should fall back to published_at ordering."""
+        resp = client.get("/api/timeline", params={"sort": "bogus"})
+        assert resp.status_code == 200
+        posts = resp.json()["posts"]
+        pub = [p["published_at"] for p in posts if p["published_at"]]
+        assert pub == sorted(pub, reverse=True)
+
 
 class TestSearch:
     def test_search_too_short(self, client):
